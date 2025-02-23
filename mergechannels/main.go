@@ -8,23 +8,35 @@ import (
 )
 
 func main() {
-	channels := make([]chan int64, 10)
+	a := make(chan int64)
+	b := make(chan int64)
+	c := make(chan int64)
 
-	for i := range channels {
-		channels[i] = make(chan int64)
-	}
+	go func() {
+		for _, num := range []int64{1, 2, 3} {
+			a <- num
+		}
+		close(a)
+	}()
 
-	for i := range channels {
-		go func(i int) {
-			channels[i] <- int64(i)
-			close(channels[i])
-		}(i)
-	}
+	go func() {
+		for _, num := range []int64{20, 10, 30} {
+			b <- num
+		}
+		close(b)
+	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	go func() {
+		for _, num := range []int64{300, 200, 100} {
+			c <- num
+		}
+		close(c)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
 	defer cancel()
 
-	for v := range merge(ctx, channels...) {
+	for v := range merge(ctx, a, b, c) {
 		fmt.Println(v)
 	}
 }
@@ -33,7 +45,7 @@ func main() {
 func merge(ctx context.Context, channels ...chan int64) <-chan int64 {
 	result := make(chan int64, 1)
 
-	merger := func(wg *sync.WaitGroup, ch chan int64) {
+	merger := func(ch chan int64) {
 		for {
 			select {
 			case <-ctx.Done():
@@ -43,9 +55,7 @@ func merge(ctx context.Context, channels ...chan int64) <-chan int64 {
 				if !ok {
 					return
 				}
-
 				result <- value
-				wg.Done()
 			}
 		}
 	}
@@ -54,7 +64,10 @@ func merge(ctx context.Context, channels ...chan int64) <-chan int64 {
 	wg.Add(len(channels))
 
 	for _, channel := range channels {
-		go merger(wg, channel)
+		go func(ch chan int64) {
+			defer wg.Done()
+			merger(ch)
+		}(channel)
 	}
 
 	go func(res chan int64) {
